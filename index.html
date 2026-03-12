@@ -9,6 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="RoadStop">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="styles.css">
   <title>RoadStop</title>
 </head>
@@ -26,7 +27,7 @@
       <div class="heading-row">
         <span id="heading-arrow" class="heading-arrow">↑</span>
         <span id="heading-text" class="heading-text">Detecting direction…</span>
-        <button id="compass-btn" class="compass-btn" style="display:none">🧭 Allow Compass</button>
+        <button id="enable-btn" class="enable-btn" style="display:none">📍 Enable Location Access</button>
       </div>
     </header>
 
@@ -70,7 +71,10 @@
 
     <section class="results">
       <div class="results-header">
-        <h2>Upcoming Stops</h2>
+        <div class="view-toggle">
+          <button class="view-btn active" id="list-view-btn">≡ List</button>
+          <button class="view-btn" id="map-view-btn">🗺 Map</button>
+        </div>
         <button id="refresh-btn" class="refresh-btn">↺ Refresh</button>
       </div>
       <div id="stops-list" class="stops-list">
@@ -79,9 +83,11 @@
           <p>Waiting for location…</p>
         </div>
       </div>
+      <div id="map-container" class="map-container"></div>
     </section>
 
   </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

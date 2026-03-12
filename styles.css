@@ -91,7 +91,7 @@ header {
   flex: 1;
 }
 
-.compass-btn {
+.enable-btn {
   background: var(--amber);
   color: var(--navy);
   border: none;
@@ -100,6 +100,7 @@ header {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 /* ─── Preferences ─── */
@@ -179,6 +180,34 @@ input[type="range"] {
   cursor: pointer;
 }
 
+/* ─── View Toggle ─── */
+.view-toggle {
+  display: flex;
+  gap: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.view-btn {
+  background: transparent;
+  border: none;
+  padding: 5px 13px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.view-btn.active {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
 /* ─── Results ─── */
 .results {
   flex: 1;
@@ -212,6 +241,32 @@ input[type="range"] {
 
 .refresh-btn:active { background: var(--navy-dark); }
 
+/* ─── Map ─── */
+#map-container {
+  display: none;
+  height: calc(100vh - 290px);
+  min-height: 300px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.map-pin {
+  width: 28px;
+  height: 28px;
+  background: var(--amber);
+  border: 2.5px solid var(--navy);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--navy);
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+
 /* ─── Stop Cards ─── */
 .stops-list {
   display: flex;
@@ -241,6 +296,21 @@ input[type="range"] {
   align-items: center;
   gap: 12px;
   margin-bottom: 10px;
+}
+
+.stop-number {
+  width: 24px;
+  height: 24px;
+  background: var(--amber);
+  border: 2px solid var(--navy);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 11px;
+  color: var(--navy);
+  flex-shrink: 0;
 }
 
 .stop-icon { font-size: 28px; line-height: 1; }

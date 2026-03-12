@@ -18,6 +18,10 @@ const state = {
   lastQueryLat: null, lastQueryLng: null, lastQueryTime: null,
   isLoading: false,
   compassListening: false,
+  map: null,
+  mapMarkers: [],
+  userMarker: null,
+  activeView: 'list',
 };
 
 // ─── Geo Math ─────────────────────────────────────────────────────────────────
@@ -242,9 +246,13 @@ function shouldRefetch() {
 }
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
+function getFilteredStops() {
+  return state.stops.filter(s => s.amenities.some(a => state.activeAmenities.has(a)));
+}
+
 function renderStops() {
   const list = document.getElementById('stops-list');
-  const filtered = state.stops.filter(s => s.amenities.some(a => state.activeAmenities.has(a)));
+  const filtered = getFilteredStops();
 
   if (filtered.length === 0) {
     list.innerHTML = `
@@ -253,12 +261,14 @@ function renderStops() {
         <p>No stops found ahead matching your filters.</p>
         <p class="hint">Try increasing the search range or selecting more amenities.</p>
       </div>`;
+    if (state.activeView === 'map') renderMap();
     return;
   }
 
-  list.innerHTML = filtered.map(stop => {
-    const distMi = kmToMiles(stop.distanceKm).toFixed(1);
-    const icon   = TYPE_ICON[stop.type] || '📍';
+  list.innerHTML = filtered.map((stop, i) => {
+    const num     = i + 1;
+    const distMi  = kmToMiles(stop.distanceKm).toFixed(1);
+    const icon    = TYPE_ICON[stop.type] || '📍';
     const mapsUrl = `https://maps.apple.com/?daddr=${stop.lat},${stop.lng}&dirflg=d`;
 
     const badges = stop.amenities
@@ -271,6 +281,7 @@ function renderStops() {
     return `
       <a class="stop-card" href="${mapsUrl}" target="_blank" rel="noopener noreferrer">
         <div class="stop-header">
+          <span class="stop-number">${num}</span>
           <span class="stop-icon">${icon}</span>
           <div class="stop-info">
             <div class="stop-name">${esc(stop.name)}</div>
@@ -281,6 +292,8 @@ function renderStops() {
         <div class="stop-amenities">${badges}</div>
       </a>`;
   }).join('');
+
+  if (state.activeView === 'map') renderMap();
 }
 
 function showLoading() {
@@ -363,10 +376,8 @@ function showLocationPrompt() {
   document.getElementById('stops-list').innerHTML = `
     <div class="status-message">
       <span class="status-icon">📍</span>
-      <p>RoadStop needs your location to find stops ahead of you.</p>
-      <button class="retry-btn" id="enable-location-btn">Enable Location Access</button>
+      <p>Tap <strong>Enable Location Access</strong> above to get started.</p>
     </div>`;
-  document.getElementById('enable-location-btn').addEventListener('click', startWatching);
 }
 
 function showLocationDenied() {
@@ -376,6 +387,82 @@ function showLocationDenied() {
       <p>Location access was blocked.</p>
       <p class="hint">In Safari: Settings → Privacy & Security → Location Services → Safari → Allow While Using App.</p>
     </div>`;
+}
+
+// ─── Map ──────────────────────────────────────────────────────────────────────
+function initMap() {
+  if (state.map) return;
+  state.map = L.map('map-container', { zoomControl: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    maxZoom: 18,
+  }).addTo(state.map);
+}
+
+function renderMap() {
+  initMap();
+
+  // User location marker
+  if (state.lat !== null) {
+    if (state.userMarker) {
+      state.userMarker.setLatLng([state.lat, state.lng]);
+    } else {
+      state.userMarker = L.circleMarker([state.lat, state.lng], {
+        radius: 9, fillColor: '#1a3a5c', color: '#ffffff', weight: 2.5, fillOpacity: 1,
+      }).addTo(state.map).bindPopup('📍 You are here');
+    }
+  }
+
+  // Clear old stop markers
+  state.mapMarkers.forEach(m => m.remove());
+  state.mapMarkers = [];
+
+  const filtered = getFilteredStops();
+  filtered.forEach((stop, i) => {
+    const num     = i + 1;
+    const distMi  = kmToMiles(stop.distanceKm).toFixed(1);
+    const pinIcon = L.divIcon({
+      html: `<div class="map-pin">${num}</div>`,
+      className: '',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+      popupAnchor: [0, -16],
+    });
+    const marker = L.marker([stop.lat, stop.lng], { icon: pinIcon })
+      .addTo(state.map)
+      .bindPopup(`<strong>${esc(stop.name)}</strong><br>${distMi} mi ahead`);
+    state.mapMarkers.push(marker);
+  });
+
+  // Fit map to show user + all stops
+  const points = [];
+  if (state.lat !== null) points.push([state.lat, state.lng]);
+  filtered.forEach(s => points.push([s.lat, s.lng]));
+  if (points.length > 1)     state.map.fitBounds(points, { padding: [30, 30] });
+  else if (points.length === 1) state.map.setView(points[0], 12);
+
+  state.map.invalidateSize();
+}
+
+function setView(viewName) {
+  state.activeView = viewName;
+  const listEl  = document.getElementById('stops-list');
+  const mapEl   = document.getElementById('map-container');
+  const listBtn = document.getElementById('list-view-btn');
+  const mapBtn  = document.getElementById('map-view-btn');
+
+  if (viewName === 'list') {
+    listEl.style.display = '';
+    mapEl.style.display  = 'none';
+    listBtn.classList.add('active');
+    mapBtn.classList.remove('active');
+  } else {
+    listEl.style.display = 'none';
+    mapEl.style.display  = '';
+    listBtn.classList.remove('active');
+    mapBtn.classList.add('active');
+    renderMap();
+  }
 }
 
 // ─── Device Compass ───────────────────────────────────────────────────────────
@@ -401,30 +488,49 @@ function onOrientation(e) {
   updateHeader();
 }
 
-async function requestCompassPermission() {
-  document.getElementById('compass-btn').style.display = 'none';
-  if (typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function') {
-    try {
-      const perm = await DeviceOrientationEvent.requestPermission();
-      if (perm === 'granted') setupCompassListeners();
-    } catch (e) {
-      console.warn('Compass permission denied:', e);
-    }
-  } else {
-    setupCompassListeners();
+function initEnableButton() {
+  if (!navigator.geolocation) {
+    document.getElementById('location-status').textContent = '📍 Not supported';
+    return;
   }
-}
 
-function initCompass() {
-  // iOS 13+ requires a user gesture to request DeviceOrientation permission
-  if (typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function') {
-    document.getElementById('compass-btn').style.display = 'inline-block';
-    document.getElementById('compass-btn').addEventListener('click', requestCompassPermission);
+  const btn = document.getElementById('enable-btn');
+  const needsOrientationGesture =
+    typeof DeviceOrientationEvent !== 'undefined' &&
+    typeof DeviceOrientationEvent.requestPermission === 'function';
+
+  async function onEnableClick() {
+    btn.style.display = 'none';
+    startWatching();
+    if (needsOrientationGesture) {
+      try {
+        const perm = await DeviceOrientationEvent.requestPermission();
+        if (perm === 'granted') setupCompassListeners();
+      } catch (e) {
+        console.warn('Orientation permission denied:', e);
+      }
+    } else {
+      setupCompassListeners();
+    }
+  }
+
+  btn.addEventListener('click', onEnableClick);
+
+  if (needsOrientationGesture) {
+    // iOS 13+: both permissions need a user gesture — show the button
+    btn.style.display = 'inline-block';
   } else {
-    // Android / other: no permission needed
+    // Android / desktop: compass auto-starts; check location permission state
     setupCompassListeners();
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        if (result.state === 'granted')      { startWatching(); }
+        else if (result.state === 'denied')  { showLocationDenied(); }
+        else { btn.style.display = 'inline-block'; showLocationPrompt(); }
+      }).catch(() => startWatching());
+    } else {
+      startWatching();
+    }
   }
 }
 
@@ -452,6 +558,10 @@ function initEventHandlers() {
     state.lastQueryTime = null;
     fetchStops();
   });
+
+  // View toggle
+  document.getElementById('list-view-btn').addEventListener('click', () => setView('list'));
+  document.getElementById('map-view-btn').addEventListener('click',  () => setView('map'));
 }
 
 // ─── Service Worker ───────────────────────────────────────────────────────────
@@ -461,7 +571,7 @@ function registerSW() {
   }
 }
 
-// ─── Geolocation start / permission check ─────────────────────────────────────
+// ─── Geolocation ──────────────────────────────────────────────────────────────
 function startWatching() {
   navigator.geolocation.watchPosition(onPosition, onPositionError, {
     enableHighAccuracy: true,
@@ -470,41 +580,11 @@ function startWatching() {
   });
 }
 
-async function initLocation() {
-  if (!navigator.geolocation) {
-    document.getElementById('location-status').textContent = '📍 Not supported';
-    return;
-  }
-
-  // Use Permissions API to check state without triggering a prompt
-  if (navigator.permissions) {
-    try {
-      const result = await navigator.permissions.query({ name: 'geolocation' });
-      if (result.state === 'granted') {
-        startWatching();
-        return;
-      } else if (result.state === 'denied') {
-        showLocationDenied();
-        return;
-      }
-      // state === 'prompt': fall through to show the button
-    } catch (e) {
-      // Permissions API not available — just try calling watchPosition directly
-      startWatching();
-      return;
-    }
-  }
-
-  // Permission state is 'prompt' (or Permissions API unavailable after catch above)
-  showLocationPrompt();
-}
-
 // ─── Init ─────────────────────────────────────────────────────────────────────
 function init() {
   registerSW();
   initEventHandlers();
-  initCompass();
-  initLocation();
+  initEnableButton();
 }
 
 init();
