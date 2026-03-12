@@ -63,9 +63,13 @@
     </section>
 
     <section class="range-section">
-      <label for="range-slider">
-        Search ahead: <strong><span id="range-value">50</span> mi</strong>
-      </label>
+      <div class="range-header">
+        <label id="range-label" for="range-slider">Search ahead: <strong>50 mi</strong></label>
+        <div class="view-toggle">
+          <button class="view-btn active" id="miles-mode-btn">Miles</button>
+          <button class="view-btn" id="time-mode-btn">Time</button>
+        </div>
+      </div>
       <input type="range" id="range-slider" min="10" max="150" value="50" step="10">
     </section>
 

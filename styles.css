@@ -165,11 +165,22 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
-.range-section label {
-  display: block;
+.range-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.range-header label {
   font-size: 13px;
   color: var(--muted);
-  margin-bottom: 8px;
+}
+
+.speed-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: normal;
 }
 
 .range-section label strong { color: var(--text); }

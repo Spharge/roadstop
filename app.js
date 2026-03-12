@@ -18,6 +18,9 @@ const state = {
   lastQueryLat: null, lastQueryLng: null, lastQueryTime: null,
   isLoading: false,
   compassListening: false,
+  searchMode: 'miles',    // 'miles' | 'time'
+  timeMinutes: 60,        // selected look-ahead time
+  speedHistory: [],       // recent GPS speeds in mph (for rolling average)
   map: null,
   mapMarkers: [],
   userMarker: null,
@@ -72,6 +75,17 @@ function headingToCardinal(deg) {
 }
 
 function kmToMiles(km) { return km * 0.621371; }
+
+function getAverageSpeedMph() {
+  if (state.speedHistory.length === 0) return null;
+  return state.speedHistory.reduce((a, b) => a + b, 0) / state.speedHistory.length;
+}
+
+function getEffectiveRangeMiles() {
+  if (state.searchMode === 'miles') return state.rangeMiles;
+  const speed = getAverageSpeedMph() || 55; // fallback to 55 mph if no data yet
+  return Math.max(10, Math.round(speed * state.timeMinutes / 60));
+}
 
 // ─── Amenity Detection ────────────────────────────────────────────────────────
 const AMENITY_META = {
@@ -164,7 +178,7 @@ function clusterStops(stops) {
 async function fetchStops() {
   if (!state.lat || !state.lng || state.isLoading) return;
 
-  const rangeKm = state.rangeMiles * 1.60934;
+  const rangeKm = getEffectiveRangeMiles() * 1.60934;
   // Center the bounding box halfway ahead of the user in their direction of travel
   const center = state.heading !== null
     ? movePoint(state.lat, state.lng, state.heading, rangeKm * 0.5)
@@ -246,6 +260,40 @@ function shouldRefetch() {
 }
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
+function updateRangeLabel() {
+  const el = document.getElementById('range-label');
+  if (!el) return;
+  const prefix = state.heading !== null ? 'Search ahead' : 'Search radius';
+
+  if (state.searchMode === 'miles') {
+    el.innerHTML = `${prefix}: <strong>${state.rangeMiles} mi</strong>`;
+  } else {
+    const speedMph      = getAverageSpeedMph();
+    const effectiveMph  = speedMph || 55;
+    const distMi        = Math.round(effectiveMph * state.timeMinutes / 60);
+    const h             = Math.floor(state.timeMinutes / 60);
+    const m             = state.timeMinutes % 60;
+    const timeStr       = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+    const speedLabel    = speedMph ? `${Math.round(speedMph)} mph` : '55 mph est.';
+    el.innerHTML = `${prefix}: <strong>${timeStr}</strong> <span class="speed-hint">≈${distMi} mi @ ${speedLabel}</span>`;
+  }
+}
+
+function setSearchMode(mode) {
+  state.searchMode = mode;
+  const slider = document.getElementById('range-slider');
+  document.getElementById('miles-mode-btn').classList.toggle('active', mode === 'miles');
+  document.getElementById('time-mode-btn').classList.toggle('active', mode === 'time');
+  if (mode === 'miles') {
+    slider.min = 10; slider.max = 150; slider.step = 10; slider.value = state.rangeMiles;
+  } else {
+    slider.min = 15; slider.max = 180; slider.step = 15; slider.value = state.timeMinutes;
+  }
+  updateRangeLabel();
+  state.lastQueryTime = null;
+  fetchStops();
+}
+
 function getFilteredStops() {
   return state.stops.filter(s => s.amenities.some(a => state.activeAmenities.has(a)));
 }
@@ -337,12 +385,23 @@ function updateHeader() {
     hdgEl.textContent = 'Showing all directions';
     arrow.style.transform = 'rotate(0deg)';
   }
+
+  updateRangeLabel();
 }
 
 // ─── Geolocation ──────────────────────────────────────────────────────────────
 function onPosition(pos) {
   state.lat = pos.coords.latitude;
   state.lng = pos.coords.longitude;
+
+  // Track speed for time-based search (m/s → mph; ignore when effectively stopped)
+  if (pos.coords.speed !== null && pos.coords.speed !== undefined) {
+    const mph = pos.coords.speed * 2.23694;
+    if (mph > 5) {
+      state.speedHistory.push(mph);
+      if (state.speedHistory.length > 8) state.speedHistory.shift();
+    }
+  }
 
   // Use GPS heading only when actually moving (speed > ~2 mph)
   if (pos.coords.heading !== null && pos.coords.heading !== undefined &&
@@ -554,10 +613,17 @@ function initEventHandlers() {
   });
 
   // Range slider
-  const slider   = document.getElementById('range-slider');
-  const rangeVal = document.getElementById('range-value');
-  slider.addEventListener('input',  () => { state.rangeMiles = +slider.value; rangeVal.textContent = slider.value; });
+  const slider = document.getElementById('range-slider');
+  slider.addEventListener('input', () => {
+    if (state.searchMode === 'miles') state.rangeMiles  = +slider.value;
+    else                              state.timeMinutes = +slider.value;
+    updateRangeLabel();
+  });
   slider.addEventListener('change', () => { state.lastQueryTime = null; fetchStops(); });
+
+  // Search mode toggle
+  document.getElementById('miles-mode-btn').addEventListener('click', () => setSearchMode('miles'));
+  document.getElementById('time-mode-btn').addEventListener('click',  () => setSearchMode('time'));
 
   // Refresh button
   document.getElementById('refresh-btn').addEventListener('click', () => {
@@ -591,6 +657,7 @@ function init() {
   registerSW();
   initEventHandlers();
   initEnableButton();
+  updateRangeLabel();
 }
 
 init();
