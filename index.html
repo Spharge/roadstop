@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1a3a5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RoadStop">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+  <title>RoadStop</title>
+</head>
+<body>
+  <div id="app">
+
+    <header>
+      <div class="header-top">
+        <div class="app-title">
+          <span class="logo">🛣️</span>
+          <h1>RoadStop</h1>
+        </div>
+        <div id="location-status" class="location-status">📍 Locating…</div>
+      </div>
+      <div class="heading-row">
+        <span id="heading-arrow" class="heading-arrow">↑</span>
+        <span id="heading-text" class="heading-text">Detecting direction…</span>
+        <button id="compass-btn" class="compass-btn" style="display:none">🧭 Allow Compass</button>
+      </div>
+    </header>
+
+    <section class="preferences">
+      <div class="pref-label">Filter amenities</div>
+      <div class="amenity-grid">
+        <label class="amenity-toggle active" data-amenity="restrooms">
+          <input type="checkbox" checked>
+          <span class="amenity-icon">🚻</span>
+          <span class="amenity-name">Restrooms</span>
+        </label>
+        <label class="amenity-toggle active" data-amenity="fuel">
+          <input type="checkbox" checked>
+          <span class="amenity-icon">⛽</span>
+          <span class="amenity-name">Gas</span>
+        </label>
+        <label class="amenity-toggle active" data-amenity="food">
+          <input type="checkbox" checked>
+          <span class="amenity-icon">🍔</span>
+          <span class="amenity-name">Food</span>
+        </label>
+        <label class="amenity-toggle active" data-amenity="ev">
+          <input type="checkbox" checked>
+          <span class="amenity-icon">⚡</span>
+          <span class="amenity-name">EV</span>
+        </label>
+        <label class="amenity-toggle active" data-amenity="dogpark">
+          <input type="checkbox" checked>
+          <span class="amenity-icon">🐕</span>
+          <span class="amenity-name">Dog Park</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="range-section">
+      <label for="range-slider">
+        Search ahead: <strong><span id="range-value">50</span> mi</strong>
+      </label>
+      <input type="range" id="range-slider" min="10" max="150" value="50" step="10">
+    </section>
+
+    <section class="results">
+      <div class="results-header">
+        <h2>Upcoming Stops</h2>
+        <button id="refresh-btn" class="refresh-btn">↺ Refresh</button>
+      </div>
+      <div id="stops-list" class="stops-list">
+        <div class="status-message">
+          <span class="status-icon">📍</span>
+          <p>Waiting for location…</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
