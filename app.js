@@ -458,7 +458,7 @@ function setView(viewName) {
     mapBtn.classList.remove('active');
   } else {
     listEl.style.display = 'none';
-    mapEl.style.display  = '';
+    mapEl.style.display  = 'block';
     listBtn.classList.remove('active');
     mapBtn.classList.add('active');
     renderMap();
