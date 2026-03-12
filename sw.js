@@ -1,10 +1,12 @@
-const CACHE = 'roadstop-v4';
+const CACHE = 'roadstop-v5';
 const ASSETS = [
   './index.html',
   './styles.css',
   './app.js',
   './manifest.json',
   './icon.svg',
+  './leaflet.js',
+  './leaflet.css',
 ];
 
 self.addEventListener('install', e => {

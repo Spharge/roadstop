@@ -392,6 +392,11 @@ function showLocationDenied() {
 // ─── Map ──────────────────────────────────────────────────────────────────────
 function initMap() {
   if (state.map) return;
+  if (typeof L === 'undefined') {
+    document.getElementById('map-container').innerHTML =
+      '<p style="padding:20px;color:#64748b;text-align:center">Map unavailable — check your connection and reload.</p>';
+    return;
+  }
   state.map = L.map('map-container', { zoomControl: true });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
@@ -441,7 +446,8 @@ function renderMap() {
   if (points.length > 1)     state.map.fitBounds(points, { padding: [30, 30] });
   else if (points.length === 1) state.map.setView(points[0], 12);
 
-  state.map.invalidateSize();
+  // Delay invalidateSize so the browser has time to paint the container
+  setTimeout(() => state.map && state.map.invalidateSize(), 100);
 }
 
 function setView(viewName) {
