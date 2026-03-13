@@ -279,6 +279,27 @@ function shouldRefetch() {
 }
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
+function updateFiltersSummary() {
+  const el = document.getElementById('filters-summary');
+  if (!el) return;
+
+  const total = Object.keys(AMENITY_META).length;
+  const active = state.activeAmenities.size;
+  const amenityStr = active === total ? 'All amenities' : `${active} amenit${active === 1 ? 'y' : 'ies'}`;
+
+  let rangeStr;
+  if (state.searchMode === 'miles') {
+    rangeStr = `${state.rangeMiles} mi`;
+  } else {
+    const h = Math.floor(state.timeMinutes / 60);
+    const m = state.timeMinutes % 60;
+    rangeStr = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+  }
+
+  const routeStr = state.routeSearch ? ` · Route ±${state.milesFromRoute} mi` : '';
+  el.textContent = `${amenityStr} · ${rangeStr}${routeStr}`;
+}
+
 function updateRangeLabel() {
   const el = document.getElementById('range-label');
   if (!el) return;
@@ -333,10 +354,11 @@ function renderStops() {
   }
 
   list.innerHTML = filtered.map((stop, i) => {
-    const num     = i + 1;
-    const distMi  = kmToMiles(stop.distanceKm).toFixed(1);
-    const icon    = TYPE_ICON[stop.type] || '📍';
-    const mapsUrl = `https://maps.apple.com/?daddr=${stop.lat},${stop.lng}&dirflg=d`;
+    const num       = i + 1;
+    const distMi    = kmToMiles(stop.distanceKm).toFixed(1);
+    const icon      = TYPE_ICON[stop.type] || '📍';
+    const mapsUrl   = `https://maps.apple.com/?daddr=${stop.lat},${stop.lng}&dirflg=d`;
+    const googleUrl = `https://www.google.com/maps/search/${encodeURIComponent(stop.name)}/@${stop.lat},${stop.lng},16z`;
 
     const badges = stop.amenities
       .filter(a => AMENITY_META[a])
@@ -346,7 +368,7 @@ function renderStops() {
       }).join('');
 
     return `
-      <a class="stop-card" href="${mapsUrl}" target="_blank" rel="noopener noreferrer">
+      <div class="stop-card" data-maps="${esc(mapsUrl)}" tabindex="0" role="link" aria-label="${esc(stop.name)}, ${distMi} miles">
         <div class="stop-header">
           <span class="stop-number">${num}</span>
           <span class="stop-icon">${icon}</span>
@@ -356,8 +378,11 @@ function renderStops() {
           </div>
           <span class="stop-arrow">›</span>
         </div>
-        <div class="stop-amenities">${badges}</div>
-      </a>`;
+        <div class="stop-footer">
+          <div class="stop-amenities">${badges}</div>
+          <a class="google-link" href="${esc(googleUrl)}" target="_blank" rel="noopener noreferrer">⭐ Ratings</a>
+        </div>
+      </div>`;
   }).join('');
 
   if (state.activeView === 'map') renderMap();
@@ -697,22 +722,31 @@ function initEventHandlers() {
       const amenity = label.dataset.amenity;
       if (cb.checked) { state.activeAmenities.add(amenity);    label.classList.add('active'); }
       else            { state.activeAmenities.delete(amenity); label.classList.remove('active'); }
+      updateFiltersSummary();
       renderStops();
     });
   });
 
-  // Range slider
+  // Range slider — live visual update + debounced API refetch
   const slider = document.getElementById('range-slider');
+  let sliderTimer = null;
   slider.addEventListener('input', () => {
     if (state.searchMode === 'miles') state.rangeMiles  = +slider.value;
     else                              state.timeMinutes = +slider.value;
     updateRangeLabel();
+    updateFiltersSummary();
+    if (state.activeView === 'map' && state.map) buildSearchLayer();
+    clearTimeout(sliderTimer);
+    sliderTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 700);
   });
-  slider.addEventListener('change', () => { state.lastQueryTime = null; fetchStops(); });
 
   // Search mode toggle
-  document.getElementById('miles-mode-btn').addEventListener('click', () => setSearchMode('miles'));
-  document.getElementById('time-mode-btn').addEventListener('click',  () => setSearchMode('time'));
+  document.getElementById('miles-mode-btn').addEventListener('click', () => {
+    setSearchMode('miles'); updateFiltersSummary();
+  });
+  document.getElementById('time-mode-btn').addEventListener('click', () => {
+    setSearchMode('time'); updateFiltersSummary();
+  });
 
   // Refresh button
   document.getElementById('refresh-btn').addEventListener('click', () => {
@@ -725,28 +759,56 @@ function initEventHandlers() {
   document.getElementById('map-view-btn').addEventListener('click',  () => setView('map'));
 
   // Route search toggle
-  const routeToggle = document.getElementById('route-search-toggle');
+  const routeToggle   = document.getElementById('route-search-toggle');
   const routeWidthRow = document.getElementById('route-width-row');
   routeToggle.addEventListener('change', () => {
     state.routeSearch = routeToggle.checked;
     routeWidthRow.style.display = state.routeSearch ? 'block' : 'none';
+    updateFiltersSummary();
     state.lastQueryTime = null;
     fetchStops();
     if (state.activeView === 'map') renderMap();
   });
 
-  // Route width slider
+  // Route width slider — debounced
   const routeWidthSlider = document.getElementById('route-width-slider');
   const routeWidthVal    = document.getElementById('route-width-val');
+  let routeWidthTimer = null;
   routeWidthSlider.addEventListener('input', () => {
     state.milesFromRoute = +routeWidthSlider.value;
     routeWidthVal.textContent = state.milesFromRoute;
+    updateFiltersSummary();
+    if (state.activeView === 'map' && state.map) buildSearchLayer();
+    clearTimeout(routeWidthTimer);
+    routeWidthTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 700);
   });
-  routeWidthSlider.addEventListener('change', () => {
-    state.lastQueryTime = null;
-    fetchStops();
-    if (state.activeView === 'map') renderMap();
+
+  // Stop card tap → Apple Maps directions (delegated)
+  document.getElementById('stops-list').addEventListener('click', e => {
+    if (e.target.closest('.google-link')) return; // let the <a> handle itself
+    const card = e.target.closest('.stop-card');
+    if (card?.dataset.maps) window.open(card.dataset.maps, '_blank');
   });
+  // Keyboard accessibility for stop cards
+  document.getElementById('stops-list').addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const card = e.target.closest('.stop-card');
+      if (card?.dataset.maps) { e.preventDefault(); window.open(card.dataset.maps, '_blank'); }
+    }
+  });
+
+  // Collapsible filter panel
+  const filterToggle = document.getElementById('filters-toggle');
+  const filterBody   = document.getElementById('filters-body');
+  const filterChevron = document.getElementById('filters-chevron');
+  filterToggle.addEventListener('click', () => {
+    const expanded = filterToggle.getAttribute('aria-expanded') === 'true';
+    filterToggle.setAttribute('aria-expanded', String(!expanded));
+    filterBody.classList.toggle('expanded', !expanded);
+    filterChevron.style.transform = !expanded ? 'rotate(180deg)' : '';
+  });
+
+  updateFiltersSummary();
 }
 
 // ─── Service Worker ───────────────────────────────────────────────────────────

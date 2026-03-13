@@ -31,64 +31,75 @@
       </div>
     </header>
 
-    <section class="preferences">
-      <div class="pref-label">Filter amenities</div>
-      <div class="amenity-grid">
-        <label class="amenity-toggle active" data-amenity="restrooms">
-          <input type="checkbox" checked>
-          <span class="amenity-icon">🚻</span>
-          <span class="amenity-name">Restrooms</span>
-        </label>
-        <label class="amenity-toggle active" data-amenity="fuel">
-          <input type="checkbox" checked>
-          <span class="amenity-icon">⛽</span>
-          <span class="amenity-name">Gas</span>
-        </label>
-        <label class="amenity-toggle active" data-amenity="food">
-          <input type="checkbox" checked>
-          <span class="amenity-icon">🍔</span>
-          <span class="amenity-name">Food</span>
-        </label>
-        <label class="amenity-toggle active" data-amenity="ev">
-          <input type="checkbox" checked>
-          <span class="amenity-icon">⚡</span>
-          <span class="amenity-name">EV</span>
-        </label>
-        <label class="amenity-toggle active" data-amenity="dogpark">
-          <input type="checkbox" checked>
-          <span class="amenity-icon">🐕</span>
-          <span class="amenity-name">Dog Park</span>
-        </label>
-      </div>
-    </section>
+    <div class="filters-panel" id="filters-panel">
+      <button class="filters-toggle" id="filters-toggle" aria-expanded="false">
+        <span class="filters-toggle-left">⚙️ Filters</span>
+        <span id="filters-summary" class="filters-summary">All amenities · 50 mi</span>
+        <span class="filters-chevron" id="filters-chevron">▾</span>
+      </button>
+      <div class="filters-body" id="filters-body">
 
-    <section class="range-section">
-      <div class="range-header">
-        <label id="range-label" for="range-slider">Search ahead: <strong>50 mi</strong></label>
-        <div class="view-toggle">
-          <button class="view-btn active" id="miles-mode-btn">Miles</button>
-          <button class="view-btn" id="time-mode-btn">Time</button>
-        </div>
-      </div>
-      <input type="range" id="range-slider" min="10" max="150" value="50" step="10">
-    </section>
+        <section class="preferences">
+          <div class="pref-label">Amenities</div>
+          <div class="amenity-grid">
+            <label class="amenity-toggle active" data-amenity="restrooms">
+              <input type="checkbox" checked>
+              <span class="amenity-icon">🚻</span>
+              <span class="amenity-name">Restrooms</span>
+            </label>
+            <label class="amenity-toggle active" data-amenity="fuel">
+              <input type="checkbox" checked>
+              <span class="amenity-icon">⛽</span>
+              <span class="amenity-name">Gas</span>
+            </label>
+            <label class="amenity-toggle active" data-amenity="food">
+              <input type="checkbox" checked>
+              <span class="amenity-icon">🍔</span>
+              <span class="amenity-name">Food</span>
+            </label>
+            <label class="amenity-toggle active" data-amenity="ev">
+              <input type="checkbox" checked>
+              <span class="amenity-icon">⚡</span>
+              <span class="amenity-name">EV</span>
+            </label>
+            <label class="amenity-toggle active" data-amenity="dogpark">
+              <input type="checkbox" checked>
+              <span class="amenity-icon">🐕</span>
+              <span class="amenity-name">Dog Park</span>
+            </label>
+          </div>
+        </section>
 
-    <section class="options-section">
-      <div class="options-row">
-        <div class="options-label-group">
-          <span class="options-label">🛣️ Route Search</span>
-          <span class="options-hint">Narrow search to your road</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="route-search-toggle">
-          <span class="switch-slider"></span>
-        </label>
+        <section class="range-section">
+          <div class="range-header">
+            <label id="range-label" for="range-slider">Search ahead: <strong>50 mi</strong></label>
+            <div class="view-toggle">
+              <button class="view-btn active" id="miles-mode-btn">Miles</button>
+              <button class="view-btn" id="time-mode-btn">Time</button>
+            </div>
+          </div>
+          <input type="range" id="range-slider" min="10" max="150" value="50" step="10">
+        </section>
+
+        <section class="options-section">
+          <div class="options-row">
+            <div class="options-label-group">
+              <span class="options-label">🛣️ Route Search</span>
+              <span class="options-hint">Narrow search to your road</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="route-search-toggle">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div id="route-width-row" class="route-width-row" style="display:none">
+            <label for="route-width-slider">Within <strong id="route-width-val">2</strong> mi of route</label>
+            <input type="range" id="route-width-slider" min="1" max="10" value="2" step="1">
+          </div>
+        </section>
+
       </div>
-      <div id="route-width-row" class="route-width-row" style="display:none">
-        <label for="route-width-slider">Within <strong id="route-width-val">2</strong> mi of route</label>
-        <input type="range" id="route-width-slider" min="1" max="10" value="2" step="1">
-      </div>
-    </section>
+    </div>
 
     <section class="results">
       <div class="results-header">

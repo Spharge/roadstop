@@ -103,6 +103,59 @@ header {
   white-space: nowrap;
 }
 
+/* ─── Collapsible Filters Panel ─── */
+.filters-panel {
+  background: var(--card);
+  border-bottom: 2px solid var(--border);
+}
+
+.filters-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.filters-toggle-left {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.filters-summary {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.filters-chevron {
+  font-size: 14px;
+  color: var(--muted);
+  transition: transform 0.25s ease;
+  flex-shrink: 0;
+}
+
+.filters-body {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.3s ease;
+}
+
+.filters-body.expanded {
+  max-height: 600px;
+}
+
 /* ─── Preferences ─── */
 .preferences {
   background: var(--card);
@@ -389,10 +442,12 @@ input[type="range"] {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 14px 16px;
-  text-decoration: none;
   color: inherit;
   transition: transform 0.1s, box-shadow 0.1s;
   border: 1px solid var(--border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
 .stop-card:active {
@@ -447,10 +502,36 @@ input[type="range"] {
   flex-shrink: 0;
 }
 
+.stop-footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .stop-amenities {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+  flex: 1;
+}
+
+.google-link {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4285f4;
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 1px solid #4285f4;
+  border-radius: 5px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.google-link:active {
+  background: #e8f0fe;
 }
 
 .amenity-badge {
