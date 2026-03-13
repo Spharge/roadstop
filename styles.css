@@ -291,6 +291,19 @@ input[type="range"] {
   font-weight: 700;
 }
 
+.stale-indicator {
+  font-size: 15px;
+  color: #ef4444;
+  flex-shrink: 0;
+  cursor: default;
+  animation: stale-pulse 2s ease-in-out infinite;
+}
+
+@keyframes stale-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
 .refresh-btn {
   background: var(--navy);
   color: #fff;

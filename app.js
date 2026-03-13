@@ -16,7 +16,9 @@ const state = {
   activeAmenities: new Set(['restrooms', 'fuel', 'food', 'ev', 'dogpark']),
   stops: [],
   lastQueryLat: null, lastQueryLng: null, lastQueryTime: null,
+  lastQueryRangeMiles: null,
   isLoading: false,
+  isStale: false,
   compassListening: false,
   searchMode: 'miles',    // 'miles' | 'time'
   timeMinutes: 60,        // selected look-ahead time
@@ -187,6 +189,25 @@ function clusterStops(stops) {
   return clusters;
 }
 
+// ─── Retry / Stale helpers ────────────────────────────────────────────────────
+let retryTimer = null;
+
+function scheduleRetry() {
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => fetchStops(), 12000); // retry after 12 s
+}
+
+function clearRetry() {
+  clearTimeout(retryTimer);
+  retryTimer = null;
+}
+
+function setStaleIndicator(visible) {
+  state.isStale = visible;
+  const el = document.getElementById('stale-indicator');
+  if (el) el.style.display = visible ? 'inline-flex' : 'none';
+}
+
 // ─── Overpass API ─────────────────────────────────────────────────────────────
 async function fetchStops() {
   if (!state.lat || !state.lng || state.isLoading) return;
@@ -217,7 +238,8 @@ async function fetchStops() {
 out center;`;
 
   state.isLoading = true;
-  showLoading();
+  const hadStops = state.stops.length > 0;
+  if (!hadStops) showLoading(); // only show spinner when the list is empty
 
   try {
     const resp = await fetch(OVERPASS_URL, {
@@ -225,6 +247,14 @@ out center;`;
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: `data=${encodeURIComponent(query)}`,
     });
+
+    // 429 = rate limited — keep the current list, mark stale, retry silently
+    if (resp.status === 429) {
+      setStaleIndicator(true);
+      scheduleRetry();
+      return;
+    }
+
     if (!resp.ok) throw new Error(`Server error ${resp.status}`);
     const data = await resp.json();
 
@@ -249,21 +279,24 @@ out center;`;
       }))
       .filter(s => isAhead(state.heading, s.bearing))
       .filter(s => {
-        // Route search: keep only stops within N miles of the projected route line
         if (!state.routeSearch || state.heading === null) return true;
         const xKm = crossTrackDistanceKm(s.lat, s.lng, state.lat, state.lng, state.heading);
         return xKm <= state.milesFromRoute * 1.60934;
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
-    state.lastQueryLat  = state.lat;
-    state.lastQueryLng  = state.lng;
-    state.lastQueryTime = Date.now();
+    state.lastQueryLat        = state.lat;
+    state.lastQueryLng        = state.lng;
+    state.lastQueryTime       = Date.now();
+    state.lastQueryRangeMiles = getEffectiveRangeMiles();
 
+    clearRetry();
+    setStaleIndicator(false);
     renderStops();
   } catch (err) {
     console.error('Overpass error:', err);
-    showError(err.message);
+    if (!hadStops) showError(err.message);
+    else setStaleIndicator(true); // keep existing list, flag as stale
   } finally {
     state.isLoading = false;
   }
@@ -274,6 +307,10 @@ function shouldRefetch() {
   if (Date.now() - state.lastQueryTime > CACHE_DURATION_MS) return true;
   if (state.lastQueryLat !== null) {
     if (haversineKm(state.lastQueryLat, state.lastQueryLng, state.lat, state.lng) > SIGNIFICANT_MOVE_KM) return true;
+  }
+  // Re-fetch if the effective range drifted by more than 5 miles (e.g. speed changed in time mode)
+  if (state.lastQueryRangeMiles !== null) {
+    if (Math.abs(getEffectiveRangeMiles() - state.lastQueryRangeMiles) > 5) return true;
   }
   return false;
 }
@@ -737,7 +774,7 @@ function initEventHandlers() {
     updateFiltersSummary();
     if (state.activeView === 'map' && state.map) buildSearchLayer();
     clearTimeout(sliderTimer);
-    sliderTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 700);
+    sliderTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 1500);
   });
 
   // Search mode toggle
@@ -780,7 +817,7 @@ function initEventHandlers() {
     updateFiltersSummary();
     if (state.activeView === 'map' && state.map) buildSearchLayer();
     clearTimeout(routeWidthTimer);
-    routeWidthTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 700);
+    routeWidthTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 1500);
   });
 
   // Stop card tap → Apple Maps directions (delegated)
