@@ -21,9 +21,12 @@ const state = {
   searchMode: 'miles',    // 'miles' | 'time'
   timeMinutes: 60,        // selected look-ahead time
   speedHistory: [],       // recent GPS speeds in mph (for rolling average)
+  routeSearch: false,     // narrow search to projected route corridor
+  milesFromRoute: 2,      // half-width of corridor in miles
   map: null,
   mapMarkers: [],
   userMarker: null,
+  searchLayer: null,      // Leaflet layer showing search area
   activeView: 'list',
 };
 
@@ -75,6 +78,16 @@ function headingToCardinal(deg) {
 }
 
 function kmToMiles(km) { return km * 0.621371; }
+
+// Cross-track distance: perpendicular km from a point to a great-circle path
+function crossTrackDistanceKm(lat, lng, originLat, originLng, headingDeg) {
+  const R = 6371;
+  const d13 = haversineKm(originLat, originLng, lat, lng);
+  if (d13 === 0) return 0;
+  const θ13 = toRad(bearing(originLat, originLng, lat, lng));
+  const θ12 = toRad(headingDeg);
+  return Math.abs(Math.asin(Math.sin(d13 / R) * Math.sin(θ13 - θ12))) * R;
+}
 
 function getAverageSpeedMph() {
   if (state.speedHistory.length === 0) return null;
@@ -235,6 +248,12 @@ out center;`;
         bearing:    bearing(state.lat, state.lng, s.lat, s.lng),
       }))
       .filter(s => isAhead(state.heading, s.bearing))
+      .filter(s => {
+        // Route search: keep only stops within N miles of the projected route line
+        if (!state.routeSearch || state.heading === null) return true;
+        const xKm = crossTrackDistanceKm(s.lat, s.lng, state.lat, state.lng, state.heading);
+        return xKm <= state.milesFromRoute * 1.60934;
+      })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
     state.lastQueryLat  = state.lat;
@@ -449,6 +468,76 @@ function showLocationDenied() {
 }
 
 // ─── Map ──────────────────────────────────────────────────────────────────────
+
+// Build a DivIcon for the user's position: plain dot when no heading, arrow when moving
+function makeUserIcon(heading) {
+  if (heading === null) {
+    return L.divIcon({
+      html: '<div class="user-dot"></div>',
+      className: '',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+      popupAnchor: [0, -12],
+    });
+  }
+  return L.divIcon({
+    html: `<svg class="user-arrow-svg" width="32" height="32" viewBox="0 0 32 32"
+              style="transform:rotate(${heading}deg);transform-origin:center">
+             <circle cx="16" cy="16" r="10" fill="white" opacity="0.9"/>
+             <circle cx="16" cy="16" r="8" fill="#1a3a5c"/>
+             <polygon points="16,5 21,21 16,17 11,21" fill="white"/>
+           </svg>`,
+    className: '',
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -18],
+  });
+}
+
+// Draw the search area on the map (sector, corridor, or circle)
+function buildSearchLayer() {
+  if (!state.map || state.lat === null) return;
+
+  if (state.searchLayer) { state.searchLayer.remove(); state.searchLayer = null; }
+
+  const rangeKm = getEffectiveRangeMiles() * 1.60934;
+  const style = {
+    color: '#3b82f6', fillColor: '#93c5fd',
+    fillOpacity: 0.15, weight: 1.5, dashArray: '7 5', opacity: 0.55,
+  };
+
+  if (state.heading === null) {
+    // Stopped — full circle radius
+    state.searchLayer = L.circle([state.lat, state.lng], {
+      radius: rangeKm * 1000, ...style,
+    }).addTo(state.map);
+
+  } else if (state.routeSearch) {
+    // Route corridor — narrow rectangle along heading
+    const wKm  = state.milesFromRoute * 1.60934;
+    const fwd  = movePoint(state.lat, state.lng, state.heading, rangeKm);
+    const rA   = (state.heading + 90)  % 360;
+    const lA   = (state.heading + 270) % 360;
+    const pts  = [
+      movePoint(state.lat,  state.lng,  lA, wKm),
+      movePoint(fwd.lat,    fwd.lng,    lA, wKm),
+      movePoint(fwd.lat,    fwd.lng,    rA, wKm),
+      movePoint(state.lat,  state.lng,  rA, wKm),
+    ].map(p => [p.lat, p.lng]);
+    state.searchLayer = L.polygon(pts, style).addTo(state.map);
+
+  } else {
+    // Moving — sector cone ahead (±HEADING_TOLERANCE degrees)
+    const pts = [[state.lat, state.lng]];
+    for (let a = -HEADING_TOLERANCE; a <= HEADING_TOLERANCE; a += 4) {
+      const p = movePoint(state.lat, state.lng, (state.heading + a + 360) % 360, rangeKm);
+      pts.push([p.lat, p.lng]);
+    }
+    pts.push([state.lat, state.lng]);
+    state.searchLayer = L.polygon(pts, style).addTo(state.map);
+  }
+}
+
 function initMap() {
   if (state.map) return;
   if (typeof L === 'undefined') {
@@ -466,18 +555,19 @@ function initMap() {
 function renderMap() {
   initMap();
 
-  // User location marker
+  // ── Search area visualization (rendered first so markers sit on top) ──
+  buildSearchLayer();
+
+  // ── User location marker (direction arrow or plain dot) ──
+  if (state.userMarker) { state.userMarker.remove(); state.userMarker = null; }
   if (state.lat !== null) {
-    if (state.userMarker) {
-      state.userMarker.setLatLng([state.lat, state.lng]);
-    } else {
-      state.userMarker = L.circleMarker([state.lat, state.lng], {
-        radius: 9, fillColor: '#1a3a5c', color: '#ffffff', weight: 2.5, fillOpacity: 1,
-      }).addTo(state.map).bindPopup('📍 You are here');
-    }
+    state.userMarker = L.marker([state.lat, state.lng], {
+      icon: makeUserIcon(state.heading),
+      zIndexOffset: 1000,
+    }).addTo(state.map).bindPopup('📍 You are here');
   }
 
-  // Clear old stop markers
+  // ── Stop markers ──
   state.mapMarkers.forEach(m => m.remove());
   state.mapMarkers = [];
 
@@ -498,14 +588,13 @@ function renderMap() {
     state.mapMarkers.push(marker);
   });
 
-  // Fit map to show user + all stops
+  // ── Fit bounds ──
   const points = [];
   if (state.lat !== null) points.push([state.lat, state.lng]);
   filtered.forEach(s => points.push([s.lat, s.lng]));
-  if (points.length > 1)     state.map.fitBounds(points, { padding: [30, 30] });
+  if (points.length > 1)        state.map.fitBounds(points, { padding: [30, 30] });
   else if (points.length === 1) state.map.setView(points[0], 12);
 
-  // Delay invalidateSize so the browser has time to paint the container
   setTimeout(() => state.map && state.map.invalidateSize(), 100);
 }
 
@@ -634,6 +723,30 @@ function initEventHandlers() {
   // View toggle
   document.getElementById('list-view-btn').addEventListener('click', () => setView('list'));
   document.getElementById('map-view-btn').addEventListener('click',  () => setView('map'));
+
+  // Route search toggle
+  const routeToggle = document.getElementById('route-search-toggle');
+  const routeWidthRow = document.getElementById('route-width-row');
+  routeToggle.addEventListener('change', () => {
+    state.routeSearch = routeToggle.checked;
+    routeWidthRow.style.display = state.routeSearch ? 'block' : 'none';
+    state.lastQueryTime = null;
+    fetchStops();
+    if (state.activeView === 'map') renderMap();
+  });
+
+  // Route width slider
+  const routeWidthSlider = document.getElementById('route-width-slider');
+  const routeWidthVal    = document.getElementById('route-width-val');
+  routeWidthSlider.addEventListener('input', () => {
+    state.milesFromRoute = +routeWidthSlider.value;
+    routeWidthVal.textContent = state.milesFromRoute;
+  });
+  routeWidthSlider.addEventListener('change', () => {
+    state.lastQueryTime = null;
+    fetchStops();
+    if (state.activeView === 'map') renderMap();
+  });
 }
 
 // ─── Service Worker ───────────────────────────────────────────────────────────
