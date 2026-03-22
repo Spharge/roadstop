@@ -15,7 +15,7 @@ const state = {
   heading: null,
   headingSource: null,       // 'gps' | 'compass' | null
   rangeMiles: 50,
-  activeAmenities: new Set(['restrooms', 'fuel', 'food', 'ev', 'dogpark']),
+  activeAmenities: new Set(['restrooms', 'fuel', 'food', 'ev', 'dogpark', 'coffee']),
   stops: [],
   lastQueryLat: null, lastQueryLng: null, lastQueryTime: null,
   lastQueryRangeMiles: null,
@@ -150,6 +150,7 @@ const AMENITY_META = {
   food:      { icon: '🍔', label: 'Food'      },
   ev:        { icon: '⚡', label: 'EV'        },
   dogpark:   { icon: '🐕', label: 'Dog Park'  },
+  coffee:    { icon: '☕', label: 'Coffee'    },
 };
 
 const TYPE_ICON = {
@@ -171,6 +172,7 @@ function detectAmenities(tags) {
   if (am === 'toilets' || tags.toilets === 'yes' || hw === 'rest_area') a.add('restrooms');
   if (am === 'fuel'    || tags.fuel    === 'yes')                        a.add('fuel');
   if (['fast_food','restaurant','cafe','food_court','bar'].includes(am) || tags.food === 'yes') a.add('food');
+  if (am === 'cafe' || tags.cuisine === 'coffee_shop') a.add('coffee');
   if (am === 'charging_station')                                          a.add('ev');
   if (le === 'dog_park' || am === 'dog_park')                             a.add('dogpark');
 

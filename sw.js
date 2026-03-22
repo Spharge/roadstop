@@ -1,4 +1,4 @@
-const CACHE = 'roadstop-v11';
+const CACHE = 'roadstop-v12';
 const ASSETS = [
   './index.html',
   './styles.css',
