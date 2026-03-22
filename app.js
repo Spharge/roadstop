@@ -7,6 +7,7 @@ const CLUSTER_RADIUS_KM  = 0.35;   // merge stops within this distance
 const HEADING_TOLERANCE  = 80;     // ±degrees from heading to include
 const CACHE_DURATION_MS  = 15 * 60 * 1000;
 const SIGNIFICANT_MOVE_KM = 4;     // re-query after moving this far
+const ROUTE_WIDTH_STEPS  = [0.25, 0.5, 0.75, 1, 2, 3, 5]; // miles, index maps to slider value
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = {
@@ -26,6 +27,7 @@ const state = {
   speedHistory: [],       // recent GPS speeds in mph (for rolling average)
   routeSearch: false,     // narrow search to projected route corridor
   milesFromRoute: 2,      // half-width of corridor in miles
+  maxResults: 20,         // cap on displayed stops (5–50)
   map: null,
   mapMarkers: [],
   userMarker: null,
@@ -449,7 +451,7 @@ function getFilteredStops() {
 
 function renderStops() {
   const list = document.getElementById('stops-list');
-  const filtered = getFilteredStops();
+  const filtered = getFilteredStops().slice(0, state.maxResults);
 
   if (filtered.length === 0) {
     list.innerHTML = `
@@ -886,17 +888,26 @@ function initEventHandlers() {
     if (state.activeView === 'map') renderMap();
   });
 
-  // Route width slider — debounced
+  // Route width slider — index-based steps, debounced
   const routeWidthSlider = document.getElementById('route-width-slider');
   const routeWidthVal    = document.getElementById('route-width-val');
   let routeWidthTimer = null;
   routeWidthSlider.addEventListener('input', () => {
-    state.milesFromRoute = +routeWidthSlider.value;
+    state.milesFromRoute = ROUTE_WIDTH_STEPS[+routeWidthSlider.value];
     routeWidthVal.textContent = state.milesFromRoute;
     updateFiltersSummary();
     if (state.activeView === 'map' && state.map) buildSearchLayer();
     clearTimeout(routeWidthTimer);
     routeWidthTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 1500);
+  });
+
+  // Max results slider
+  const maxResultsSlider = document.getElementById('max-results-slider');
+  const maxResultsVal    = document.getElementById('max-results-val');
+  maxResultsSlider.addEventListener('input', () => {
+    state.maxResults = +maxResultsSlider.value;
+    maxResultsVal.textContent = state.maxResults;
+    renderStops();
   });
 
   // Stop card tap → Apple Maps directions (delegated)
