@@ -2,6 +2,7 @@
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+const OSRM_URL     = 'https://router.project-osrm.org/route/v1/driving';
 const CLUSTER_RADIUS_KM  = 0.35;   // merge stops within this distance
 const HEADING_TOLERANCE  = 80;     // ±degrees from heading to include
 const CACHE_DURATION_MS  = 15 * 60 * 1000;
@@ -29,6 +30,7 @@ const state = {
   mapMarkers: [],
   userMarker: null,
   searchLayer: null,      // Leaflet layer showing search area
+  routePolyline: null,    // [[lat,lng]…] from OSRM when route search is active
   activeView: 'list',
 };
 
@@ -80,6 +82,43 @@ function headingToCardinal(deg) {
 }
 
 function kmToMiles(km) { return km * 0.621371; }
+
+// ─── Polyline Geometry ────────────────────────────────────────────────────────
+
+// Minimum distance (km) from a point to a line segment, using lat/lng dot-product
+// projection (accurate enough at road-corridor scale)
+function pointToSegmentDistanceKm(lat, lng, lat1, lng1, lat2, lng2) {
+  const denom = (lat2 - lat1) ** 2 + (lng2 - lng1) ** 2;
+  if (denom === 0) return haversineKm(lat, lng, lat1, lng1);
+  const t = Math.max(0, Math.min(1,
+    ((lat - lat1) * (lat2 - lat1) + (lng - lng1) * (lng2 - lng1)) / denom
+  ));
+  return haversineKm(lat, lng, lat1 + t * (lat2 - lat1), lng1 + t * (lng2 - lng1));
+}
+
+function pointToPolylineDistanceKm(lat, lng, polyline) {
+  let min = Infinity;
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const d = pointToSegmentDistanceKm(lat, lng,
+      polyline[i][0], polyline[i][1], polyline[i + 1][0], polyline[i + 1][1]);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+// Build a filled polygon corridor around a polyline for map visualization
+function polylineCorridorPolygon(polyline, widthKm) {
+  const left = [], right = [];
+  for (let i = 0; i < polyline.length; i++) {
+    const [lat, lng] = polyline[i];
+    const hdg = i < polyline.length - 1
+      ? bearing(lat, lng, polyline[i + 1][0], polyline[i + 1][1])
+      : bearing(polyline[i - 1][0], polyline[i - 1][1], lat, lng);
+    left.push(movePoint(lat, lng, (hdg + 270) % 360, widthKm));
+    right.push(movePoint(lat, lng, (hdg + 90)  % 360, widthKm));
+  }
+  return left.concat(right.reverse()).map(p => [p.lat, p.lng]);
+}
 
 // Cross-track distance: perpendicular km from a point to a great-circle path
 function crossTrackDistanceKm(lat, lng, originLat, originLng, headingDeg) {
@@ -208,6 +247,28 @@ function setStaleIndicator(visible) {
   if (el) el.style.display = visible ? 'inline-flex' : 'none';
 }
 
+// ─── OSRM Route ───────────────────────────────────────────────────────────────
+// Fetches the actual road geometry ahead via OSRM and stores it in state.routePolyline.
+// Falls back gracefully (leaves routePolyline null) on any error.
+async function fetchRoutePolyline() {
+  if (state.lat === null || state.heading === null) return;
+  const rangeKm = getEffectiveRangeMiles() * 1.60934;
+  const end     = movePoint(state.lat, state.lng, state.heading, rangeKm);
+  const url     = `${OSRM_URL}/${state.lng},${state.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const data   = await resp.json();
+    const coords = data.routes?.[0]?.geometry?.coordinates;
+    if (coords?.length > 1) {
+      // GeoJSON uses [lng, lat] — swap to [lat, lng] for internal use
+      state.routePolyline = coords.map(([lng, lat]) => [lat, lng]);
+    }
+  } catch (e) {
+    console.warn('OSRM fetch failed — falling back to straight-line corridor:', e);
+  }
+}
+
 // ─── Overpass API ─────────────────────────────────────────────────────────────
 async function fetchStops() {
   if (!state.lat || !state.lng || state.isLoading) return;
@@ -242,11 +303,17 @@ out center;`;
   if (!hadStops) showLoading(); // only show spinner when the list is empty
 
   try {
-    const resp = await fetch(OVERPASS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `data=${encodeURIComponent(query)}`,
-    });
+    // Fire Overpass and (if route search is on) OSRM in parallel
+    const [resp] = await Promise.all([
+      fetch(OVERPASS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `data=${encodeURIComponent(query)}`,
+      }),
+      state.routeSearch && state.heading !== null
+        ? fetchRoutePolyline()
+        : Promise.resolve(),
+    ]);
 
     // 429 = rate limited — keep the current list, mark stale, retry silently
     if (resp.status === 429) {
@@ -280,8 +347,13 @@ out center;`;
       .filter(s => isAhead(state.heading, s.bearing))
       .filter(s => {
         if (!state.routeSearch || state.heading === null) return true;
-        const xKm = crossTrackDistanceKm(s.lat, s.lng, state.lat, state.lng, state.heading);
-        return xKm <= state.milesFromRoute * 1.60934;
+        const corridorKm = state.milesFromRoute * 1.60934;
+        if (state.routePolyline) {
+          // Use actual road geometry from OSRM
+          return pointToPolylineDistanceKm(s.lat, s.lng, state.routePolyline) <= corridorKm;
+        }
+        // Fallback: straight-line cross-track filter
+        return crossTrackDistanceKm(s.lat, s.lng, state.lat, state.lng, state.heading) <= corridorKm;
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
@@ -575,18 +647,24 @@ function buildSearchLayer() {
     }).addTo(state.map);
 
   } else if (state.routeSearch) {
-    // Route corridor — narrow rectangle along heading
-    const wKm  = state.milesFromRoute * 1.60934;
-    const fwd  = movePoint(state.lat, state.lng, state.heading, rangeKm);
-    const rA   = (state.heading + 90)  % 360;
-    const lA   = (state.heading + 270) % 360;
-    const pts  = [
-      movePoint(state.lat,  state.lng,  lA, wKm),
-      movePoint(fwd.lat,    fwd.lng,    lA, wKm),
-      movePoint(fwd.lat,    fwd.lng,    rA, wKm),
-      movePoint(state.lat,  state.lng,  rA, wKm),
-    ].map(p => [p.lat, p.lng]);
-    state.searchLayer = L.polygon(pts, style).addTo(state.map);
+    const wKm = state.milesFromRoute * 1.60934;
+    if (state.routePolyline && state.routePolyline.length > 1) {
+      // Real road corridor — polygon buffered around OSRM route geometry
+      const pts = polylineCorridorPolygon(state.routePolyline, wKm);
+      state.searchLayer = L.polygon(pts, style).addTo(state.map);
+    } else {
+      // Fallback: straight rectangle along heading (no OSRM data yet)
+      const fwd = movePoint(state.lat, state.lng, state.heading, rangeKm);
+      const rA  = (state.heading + 90)  % 360;
+      const lA  = (state.heading + 270) % 360;
+      const pts = [
+        movePoint(state.lat, state.lng, lA, wKm),
+        movePoint(fwd.lat,   fwd.lng,   lA, wKm),
+        movePoint(fwd.lat,   fwd.lng,   rA, wKm),
+        movePoint(state.lat, state.lng, rA, wKm),
+      ].map(p => [p.lat, p.lng]);
+      state.searchLayer = L.polygon(pts, style).addTo(state.map);
+    }
 
   } else {
     // Moving — sector cone ahead (±HEADING_TOLERANCE degrees)
@@ -800,6 +878,7 @@ function initEventHandlers() {
   const routeWidthRow = document.getElementById('route-width-row');
   routeToggle.addEventListener('change', () => {
     state.routeSearch = routeToggle.checked;
+    if (!state.routeSearch) state.routePolyline = null;
     routeWidthRow.style.display = state.routeSearch ? 'block' : 'none';
     updateFiltersSummary();
     state.lastQueryTime = null;
