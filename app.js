@@ -8,6 +8,7 @@ const HEADING_TOLERANCE  = 80;     // ±degrees from heading to include
 const CACHE_DURATION_MS  = 15 * 60 * 1000;
 const SIGNIFICANT_MOVE_KM = 4;     // re-query after moving this far
 const ROUTE_WIDTH_STEPS  = [0.25, 0.5, 0.75, 1, 2, 3, 5]; // miles, index maps to slider value
+const PREFS_KEY          = 'roadstop_prefs';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = {
@@ -145,12 +146,57 @@ function getEffectiveRangeMiles() {
 
 // ─── Amenity Detection ────────────────────────────────────────────────────────
 const AMENITY_META = {
-  restrooms: { icon: '🚻', label: 'Restrooms' },
-  fuel:      { icon: '⛽', label: 'Gas'       },
-  food:      { icon: '🍔', label: 'Food'      },
-  ev:        { icon: '⚡', label: 'EV'        },
-  dogpark:   { icon: '🐕', label: 'Dog Park'  },
-  coffee:    { icon: '☕', label: 'Coffee'    },
+  // ── Default ON ──
+  restrooms:  { icon: '🚻', label: 'Restrooms',   defaultOn: true  },
+  fuel:       { icon: '⛽', label: 'Gas',          defaultOn: true  },
+  food:       { icon: '🍔', label: 'Food',         defaultOn: true  },
+  coffee:     { icon: '☕', label: 'Coffee',       defaultOn: true  },
+  ev:         { icon: '⚡', label: 'EV',           defaultOn: true  },
+  dogpark:    { icon: '🐕', label: 'Dog Park',     defaultOn: true  },
+  // ── Default OFF ──
+  hotel:      { icon: '🏨', label: 'Hotel',        defaultOn: false },
+  campground: { icon: '⛺', label: 'Campground',   defaultOn: false },
+  rvpark:     { icon: '🚐', label: 'RV Park',      defaultOn: false },
+  playground: { icon: '🛝', label: 'Playground',   defaultOn: false },
+  picnic:     { icon: '🧺', label: 'Picnic',       defaultOn: false },
+  grocery:    { icon: '🛒', label: 'Grocery',      defaultOn: false },
+  bigbox:     { icon: '🏪', label: 'Big Box',      defaultOn: false },
+  pharmacy:   { icon: '💊', label: 'Pharmacy',     defaultOn: false },
+  hospital:   { icon: '🏥', label: 'Hospital',     defaultOn: false },
+  autorepair: { icon: '🔧', label: 'Auto Repair',  defaultOn: false },
+  carwash:    { icon: '🚗', label: 'Car Wash',     defaultOn: false },
+  scenic:     { icon: '🏔️', label: 'Scenic',       defaultOn: false },
+  park:       { icon: '🌲', label: 'Parks',         defaultOn: false },
+  atm:        { icon: '🏧', label: 'ATM/Bank',     defaultOn: false },
+  laundromat: { icon: '👕', label: 'Laundromat',   defaultOn: false },
+};
+
+// Maps each amenity key to the Overpass node/way query lines that detect it.
+// Rest areas and service areas are always queried (they bundle multiple amenities).
+const AMENITY_QUERIES = {
+  restrooms:  ['node["amenity"="toilets"]["access"!="private"]'],
+  fuel:       ['node["amenity"="fuel"]["access"!="private"]'],
+  food:       ['node["amenity"="fast_food"]', 'node["amenity"="restaurant"]'],
+  coffee:     ['node["amenity"="cafe"]'],
+  ev:         ['node["amenity"="charging_station"]'],
+  dogpark:    ['node["leisure"="dog_park"]'],
+  hotel:      ['node["amenity"="hotel"]', 'node["amenity"="motel"]',
+               'node["tourism"="hotel"]', 'node["tourism"="motel"]'],
+  campground: ['node["tourism"="camp_site"]', 'way["tourism"="camp_site"]'],
+  rvpark:     ['node["tourism"="caravan_site"]', 'way["tourism"="caravan_site"]'],
+  playground: ['node["leisure"="playground"]'],
+  picnic:     ['node["tourism"="picnic_site"]', 'node["leisure"="picnic_table"]'],
+  grocery:    ['node["shop"="supermarket"]', 'node["shop"="grocery"]'],
+  bigbox:     ['node["shop"="department_store"]'],
+  pharmacy:   ['node["amenity"="pharmacy"]'],
+  hospital:   ['node["amenity"="hospital"]', 'node["amenity"="clinic"]',
+               'node["amenity"="urgent_care"]'],
+  autorepair: ['node["shop"="car_repair"]'],
+  carwash:    ['node["amenity"="car_wash"]'],
+  scenic:     ['node["tourism"="viewpoint"]'],
+  park:       ['node["leisure"="nature_reserve"]', 'way["leisure"="nature_reserve"]'],
+  atm:        ['node["amenity"="atm"]', 'node["amenity"="bank"]'],
+  laundromat: ['node["amenity"="laundry"]', 'node["shop"="laundry"]'],
 };
 
 const TYPE_ICON = {
@@ -163,25 +209,66 @@ const TYPE_ICON = {
   charging_station: '⚡',
   toilets:          '🚻',
   dog_park:         '🐕',
+  hotel:            '🏨',
+  motel:            '🏨',
+  camp_site:        '⛺',
+  caravan_site:     '🚐',
+  playground:       '🛝',
+  picnic_site:      '🧺',
+  picnic_table:     '🧺',
+  supermarket:      '🛒',
+  grocery:          '🛒',
+  department_store: '🏪',
+  pharmacy:         '💊',
+  hospital:         '🏥',
+  clinic:           '🏥',
+  urgent_care:      '🏥',
+  car_repair:       '🔧',
+  car_wash:         '🚗',
+  viewpoint:        '🏔️',
+  nature_reserve:   '🌲',
+  atm:              '🏧',
+  bank:             '🏧',
+  laundry:          '👕',
 };
 
 function detectAmenities(tags) {
   const a = new Set();
-  const hw = tags.highway, am = tags.amenity, le = tags.leisure;
+  const hw = tags.highway, am = tags.amenity, le = tags.leisure,
+        sh = tags.shop,    to = tags.tourism;
 
+  // ── Existing ──
   if (am === 'toilets' || tags.toilets === 'yes' || hw === 'rest_area') a.add('restrooms');
   if (am === 'fuel'    || tags.fuel    === 'yes')                        a.add('fuel');
   if (['fast_food','restaurant','cafe','food_court','bar'].includes(am) || tags.food === 'yes') a.add('food');
-  if (am === 'cafe' || tags.cuisine === 'coffee_shop') a.add('coffee');
+  if (am === 'cafe' || tags.cuisine === 'coffee_shop')                   a.add('coffee');
   if (am === 'charging_station')                                          a.add('ev');
   if (le === 'dog_park' || am === 'dog_park')                             a.add('dogpark');
 
-  // Service areas typically have restrooms, fuel, and food
+  // Service areas bundle restrooms, fuel, and food
   if (hw === 'services') {
     a.add('restrooms');
-    if (tags.fuel !== 'no')  a.add('fuel');
-    if (tags.food !== 'no')  a.add('food');
+    if (tags.fuel !== 'no') a.add('fuel');
+    if (tags.food !== 'no') a.add('food');
   }
+
+  // ── New ──
+  if (['hotel','motel'].includes(am) || ['hotel','motel'].includes(to)) a.add('hotel');
+  if (to === 'camp_site')                                                 a.add('campground');
+  if (to === 'caravan_site')                                              a.add('rvpark');
+  if (le === 'playground')                                                a.add('playground');
+  if (to === 'picnic_site' || le === 'picnic_table')                      a.add('picnic');
+  if (['supermarket','grocery'].includes(sh))                             a.add('grocery');
+  if (sh === 'department_store')                                          a.add('bigbox');
+  if (am === 'pharmacy')                                                  a.add('pharmacy');
+  if (['hospital','clinic','urgent_care'].includes(am))                   a.add('hospital');
+  if (sh === 'car_repair')                                                a.add('autorepair');
+  if (am === 'car_wash')                                                  a.add('carwash');
+  if (to === 'viewpoint')                                                 a.add('scenic');
+  if (le === 'nature_reserve')                                            a.add('park');
+  if (am === 'atm' || am === 'bank')                                      a.add('atm');
+  if (am === 'laundry' || sh === 'laundry')                               a.add('laundromat');
+
   return a;
 }
 
@@ -189,21 +276,45 @@ function getStopName(tags) {
   if (tags.name) return tags.name;
   if (tags.highway === 'rest_area') return 'Rest Area';
   if (tags.highway === 'services')  return 'Service Area';
-  const am = tags.amenity;
+  const am = tags.amenity, sh = tags.shop, to = tags.tourism, le = tags.leisure;
   if (am === 'fuel')             return tags.brand || 'Gas Station';
   if (am === 'fast_food')        return tags.brand || 'Fast Food';
   if (am === 'restaurant')       return 'Restaurant';
   if (am === 'cafe')             return 'Café';
   if (am === 'charging_station') return tags.brand || 'EV Charging';
   if (am === 'toilets')          return 'Restrooms';
-  if (tags.leisure === 'dog_park') return 'Dog Park';
+  if (le === 'dog_park')         return 'Dog Park';
+  if (am === 'hotel')            return tags.brand || 'Hotel';
+  if (am === 'motel')            return tags.brand || 'Motel';
+  if (to === 'hotel')            return tags.brand || 'Hotel';
+  if (to === 'motel')            return tags.brand || 'Motel';
+  if (to === 'camp_site')        return 'Campground';
+  if (to === 'caravan_site')     return 'RV Park';
+  if (le === 'playground')       return 'Playground';
+  if (to === 'picnic_site')      return 'Picnic Area';
+  if (le === 'picnic_table')     return 'Picnic Area';
+  if (sh === 'supermarket')      return tags.brand || 'Supermarket';
+  if (sh === 'grocery')          return tags.brand || 'Grocery Store';
+  if (sh === 'department_store') return tags.brand || 'Big Box Store';
+  if (am === 'pharmacy')         return tags.brand || 'Pharmacy';
+  if (am === 'hospital')         return 'Hospital';
+  if (am === 'clinic')           return 'Clinic';
+  if (am === 'urgent_care')      return 'Urgent Care';
+  if (sh === 'car_repair')       return tags.brand || 'Auto Repair';
+  if (am === 'car_wash')         return 'Car Wash';
+  if (to === 'viewpoint')        return 'Scenic Viewpoint';
+  if (le === 'nature_reserve')   return 'Nature Reserve';
+  if (am === 'atm')              return 'ATM';
+  if (am === 'bank')             return tags.brand || 'Bank';
+  if (am === 'laundry')          return 'Laundromat';
+  if (sh === 'laundry')          return 'Laundromat';
   return 'Stop';
 }
 
 function getStopType(tags) {
   if (tags.highway === 'rest_area') return 'rest_area';
   if (tags.highway === 'services')  return 'services';
-  return tags.amenity || tags.leisure || 'stop';
+  return tags.amenity || tags.tourism || tags.shop || tags.leisure || 'stop';
 }
 
 // ─── Clustering ───────────────────────────────────────────────────────────────
@@ -273,7 +384,60 @@ async function fetchRoutePolyline() {
   }
 }
 
+// ─── Preferences ──────────────────────────────────────────────────────────────
+function savePrefs() {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({
+      activeAmenities: Array.from(state.activeAmenities),
+      searchMode:      state.searchMode,
+      rangeMiles:      state.rangeMiles,
+      timeMinutes:     state.timeMinutes,
+      routeSearch:     state.routeSearch,
+      milesFromRoute:  state.milesFromRoute,
+      maxResults:      state.maxResults,
+    }));
+  } catch (e) {
+    console.warn('Could not save prefs:', e);
+  }
+}
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (Array.isArray(p.activeAmenities)) {
+      // Only restore keys that still exist in AMENITY_META (guards against removed amenities)
+      state.activeAmenities = new Set(p.activeAmenities.filter(a => AMENITY_META[a]));
+    }
+    if (p.searchMode === 'miles' || p.searchMode === 'time') state.searchMode  = p.searchMode;
+    if (typeof p.rangeMiles     === 'number') state.rangeMiles     = p.rangeMiles;
+    if (typeof p.timeMinutes    === 'number') state.timeMinutes    = p.timeMinutes;
+    if (typeof p.routeSearch    === 'boolean') state.routeSearch   = p.routeSearch;
+    if (typeof p.milesFromRoute === 'number') state.milesFromRoute = p.milesFromRoute;
+    if (typeof p.maxResults     === 'number') state.maxResults     = p.maxResults;
+  } catch (e) {
+    console.warn('Could not load prefs:', e);
+  }
+}
+
 // ─── Overpass API ─────────────────────────────────────────────────────────────
+function buildOverpassQuery(bb) {
+  // Always include highway service/rest areas — they bundle multiple amenities
+  const lines = [
+    `node["highway"="rest_area"](${bb});`,
+    `way["highway"="rest_area"](${bb});`,
+    `node["highway"="services"](${bb});`,
+    `way["highway"="services"](${bb});`,
+  ];
+  for (const [amenity, queries] of Object.entries(AMENITY_QUERIES)) {
+    if (state.activeAmenities.has(amenity)) {
+      queries.forEach(q => lines.push(`${q}(${bb});`));
+    }
+  }
+  return `[out:json][timeout:30];\n(\n  ${lines.join('\n  ')}\n);\nout center;`;
+}
+
 async function fetchStops() {
   if (!state.lat || !state.lng || state.isLoading) return;
 
@@ -286,21 +450,7 @@ async function fetchStops() {
   const { south, west, north, east } = bboxAround(center.lat, center.lng, rangeKm * 0.65);
   const bb = `${south},${west},${north},${east}`;
 
-  const query = `[out:json][timeout:30];
-(
-  node["highway"="rest_area"](${bb});
-  way["highway"="rest_area"](${bb});
-  node["highway"="services"](${bb});
-  way["highway"="services"](${bb});
-  node["amenity"="toilets"]["access"!="private"](${bb});
-  node["amenity"="fuel"]["access"!="private"](${bb});
-  node["amenity"="fast_food"](${bb});
-  node["amenity"="restaurant"](${bb});
-  node["amenity"="cafe"](${bb});
-  node["amenity"="charging_station"](${bb});
-  node["leisure"="dog_park"](${bb});
-);
-out center;`;
+  const query = buildOverpassQuery(bb);
 
   state.isLoading = true;
   const hadStops = state.stops.length > 0;
@@ -832,19 +982,68 @@ function initEnableButton() {
   }
 }
 
-// ─── Event Handlers ───────────────────────────────────────────────────────────
-function initEventHandlers() {
-  // Amenity toggles
-  document.querySelectorAll('.amenity-toggle input').forEach(cb => {
+// ─── Amenity Grid ─────────────────────────────────────────────────────────────
+function renderAmenityToggles() {
+  const grid = document.getElementById('amenity-grid');
+  if (!grid) return;
+  grid.innerHTML = Object.entries(AMENITY_META).map(([key, meta]) => {
+    const active  = state.activeAmenities.has(key) ? ' active' : '';
+    const checked = state.activeAmenities.has(key) ? ' checked' : '';
+    return `<label class="amenity-toggle${active}" data-amenity="${key}">
+        <input type="checkbox"${checked}>
+        <span class="amenity-icon">${meta.icon}</span>
+        <span class="amenity-name">${meta.label}</span>
+      </label>`;
+  }).join('');
+
+  grid.querySelectorAll('.amenity-toggle input').forEach(cb => {
     cb.addEventListener('change', () => {
       const label   = cb.closest('.amenity-toggle');
       const amenity = label.dataset.amenity;
       if (cb.checked) { state.activeAmenities.add(amenity);    label.classList.add('active'); }
       else            { state.activeAmenities.delete(amenity); label.classList.remove('active'); }
       updateFiltersSummary();
+      savePrefs();
       renderStops();
     });
   });
+}
+
+// Apply state (loaded from localStorage or defaults) to all UI controls
+function applyPrefsToUI() {
+  // Range slider
+  const slider = document.getElementById('range-slider');
+  if (state.searchMode === 'time') {
+    slider.min = 15; slider.max = 180; slider.step = 15;
+    slider.value = state.timeMinutes;
+    document.getElementById('miles-mode-btn').classList.remove('active');
+    document.getElementById('time-mode-btn').classList.add('active');
+  } else {
+    slider.value = state.rangeMiles;
+  }
+
+  // Route search
+  const routeToggle = document.getElementById('route-search-toggle');
+  routeToggle.checked = state.routeSearch;
+  document.getElementById('route-width-row').style.display = state.routeSearch ? 'block' : 'none';
+
+  // Route width — find index matching saved milesFromRoute value
+  const routeWidthSlider = document.getElementById('route-width-slider');
+  const widthIdx = ROUTE_WIDTH_STEPS.indexOf(state.milesFromRoute);
+  if (widthIdx !== -1) routeWidthSlider.value = widthIdx;
+  document.getElementById('route-width-val').textContent = state.milesFromRoute;
+
+  // Max results
+  const maxSlider = document.getElementById('max-results-slider');
+  maxSlider.value = state.maxResults;
+  document.getElementById('max-results-val').textContent = state.maxResults;
+
+  updateRangeLabel();
+  updateFiltersSummary();
+}
+
+// ─── Event Handlers ───────────────────────────────────────────────────────────
+function initEventHandlers() {
 
   // Range slider — live visual update + debounced API refetch
   const slider = document.getElementById('range-slider');
@@ -854,6 +1053,7 @@ function initEventHandlers() {
     else                              state.timeMinutes = +slider.value;
     updateRangeLabel();
     updateFiltersSummary();
+    savePrefs();
     if (state.activeView === 'map' && state.map) buildSearchLayer();
     clearTimeout(sliderTimer);
     sliderTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 1500);
@@ -861,10 +1061,10 @@ function initEventHandlers() {
 
   // Search mode toggle
   document.getElementById('miles-mode-btn').addEventListener('click', () => {
-    setSearchMode('miles'); updateFiltersSummary();
+    setSearchMode('miles'); updateFiltersSummary(); savePrefs();
   });
   document.getElementById('time-mode-btn').addEventListener('click', () => {
-    setSearchMode('time'); updateFiltersSummary();
+    setSearchMode('time'); updateFiltersSummary(); savePrefs();
   });
 
   // Refresh button
@@ -885,6 +1085,7 @@ function initEventHandlers() {
     if (!state.routeSearch) state.routePolyline = null;
     routeWidthRow.style.display = state.routeSearch ? 'block' : 'none';
     updateFiltersSummary();
+    savePrefs();
     state.lastQueryTime = null;
     fetchStops();
     if (state.activeView === 'map') renderMap();
@@ -898,6 +1099,7 @@ function initEventHandlers() {
     state.milesFromRoute = ROUTE_WIDTH_STEPS[+routeWidthSlider.value];
     routeWidthVal.textContent = state.milesFromRoute;
     updateFiltersSummary();
+    savePrefs();
     if (state.activeView === 'map' && state.map) buildSearchLayer();
     clearTimeout(routeWidthTimer);
     routeWidthTimer = setTimeout(() => { state.lastQueryTime = null; fetchStops(); }, 1500);
@@ -909,6 +1111,7 @@ function initEventHandlers() {
   maxResultsSlider.addEventListener('input', () => {
     state.maxResults = +maxResultsSlider.value;
     maxResultsVal.textContent = state.maxResults;
+    savePrefs();
     renderStops();
   });
 
@@ -958,10 +1161,12 @@ function startWatching() {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 function init() {
+  loadPrefs();
   registerSW();
+  renderAmenityToggles();
   initEventHandlers();
+  applyPrefsToUI();
   initEnableButton();
-  updateRangeLabel();
 }
 
 init();

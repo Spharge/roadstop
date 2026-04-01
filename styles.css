@@ -153,7 +153,7 @@ header {
 }
 
 .filters-body.expanded {
-  max-height: 600px;
+  max-height: 1000px;
 }
 
 /* ─── Preferences ─── */
@@ -173,15 +173,10 @@ header {
 }
 
 .amenity-grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding-bottom: 2px;
 }
-.amenity-grid::-webkit-scrollbar { display: none; }
 
 .amenity-toggle {
   display: flex;
@@ -193,7 +188,6 @@ header {
   border: 2px solid var(--border);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
-  flex: 1;
   background: var(--bg);
   user-select: none;
 }
