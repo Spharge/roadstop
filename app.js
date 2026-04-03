@@ -9,6 +9,8 @@ const CACHE_DURATION_MS  = 15 * 60 * 1000;
 const SIGNIFICANT_MOVE_KM = 4;     // re-query after moving this far
 const ROUTE_WIDTH_STEPS  = [0.25, 0.5, 0.75, 1, 2, 3, 5]; // miles, index maps to slider value
 const PREFS_KEY          = 'roadstop_prefs';
+const MUSICBRAINZ_URL    = 'https://musicbrainz.org/ws/2';
+const NOMINATIM_URL      = 'https://nominatim.openstreetmap.org';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = {
@@ -1140,6 +1142,47 @@ function initEventHandlers() {
     filterChevron.style.transform = !expanded ? 'rotate(180deg)' : '';
   });
 
+  // Playlist button
+  document.getElementById('playlist-btn').addEventListener('click', openPlaylist);
+
+  // Close modal — X button or tap on backdrop
+  document.getElementById('playlist-close').addEventListener('click', hidePlaylistModal);
+  document.getElementById('playlist-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('playlist-modal')) hidePlaylistModal();
+  });
+
+  // Copy list to clipboard
+  document.getElementById('playlist-copy').addEventListener('click', () => {
+    const modal = document.getElementById('playlist-modal');
+    const text  = `Artists from ${modal.dataset.location}:\n${modal.dataset.artists}`;
+    const btn   = document.getElementById('playlist-copy');
+    const reset = () => { setTimeout(() => { btn.textContent = '📋 Copy List'; }, 2000); };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => { btn.textContent = '✓ Copied!'; reset(); })
+                                         .catch(() => { fallbackCopy(text); btn.textContent = '✓ Copied!'; reset(); });
+    } else {
+      fallbackCopy(text); btn.textContent = '✓ Copied!'; reset();
+    }
+  });
+
+  // Share via native sheet (iOS/Android) or fall back to clipboard
+  document.getElementById('playlist-share').addEventListener('click', () => {
+    const modal = document.getElementById('playlist-modal');
+    const loc   = modal.dataset.location;
+    const text  = `Artists from ${loc}:\n${modal.dataset.artists}\n\nFound with RoadStop 🛣️`;
+    if (navigator.share) {
+      navigator.share({ title: `Local Artists · ${loc}`, text }).catch(() => {});
+    } else {
+      const btn = document.getElementById('playlist-share');
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = '✓ Copied!';
+          setTimeout(() => { btn.textContent = '↑ Share'; }, 2000);
+        });
+      }
+    }
+  });
+
   updateFiltersSummary();
 }
 
@@ -1157,6 +1200,127 @@ function startWatching() {
     maximumAge: 10000,
     timeout: 20000,
   });
+}
+
+// ─── Local Playlist ───────────────────────────────────────────────────────────
+
+// Reverse-geocode the user's position to a human city/region name via Nominatim.
+async function fetchNearbyCity(lat, lng) {
+  const url  = `${NOMINATIM_URL}/reverse?lat=${lat}&lon=${lng}&format=json`;
+  const resp = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+  if (!resp.ok) throw new Error('Could not determine your location name');
+  const data = await resp.json();
+  const addr   = data.address || {};
+  const city   = addr.city || addr.town || addr.village || addr.county || '';
+  const region = addr.state || addr.county || '';
+  return { city, region, display: [city, region].filter(Boolean).join(', ') };
+}
+
+// Query MusicBrainz for artists from the given area.
+// Tries the city first; falls back to the broader region if results are sparse.
+async function fetchLocalArtists(city, region) {
+  for (const area of [city, region]) {
+    if (!area) continue;
+    const url  = `${MUSICBRAINZ_URL}/artist?query=area:%22${encodeURIComponent(area)}%22&fmt=json&limit=15`;
+    const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) continue;
+    const data    = await resp.json();
+    const artists = (data.artists || [])
+      .filter(a => a.score >= 70)
+      .slice(0, 10)
+      .map(a => ({
+        name:  a.name,
+        type:  a.type  || 'Artist',
+        genre: (a.tags || [])
+          .sort((x, y) => y.count - x.count)
+          .slice(0, 2)
+          .map(t => t.name)
+          .join(', '),
+      }));
+    if (artists.length >= 2) return artists;
+  }
+  return [];
+}
+
+// Returns deep-link objects for the four major streaming platforms.
+function platformLinks(artistName) {
+  const q = encodeURIComponent(artistName);
+  return [
+    { label: 'Spotify',     url: `https://open.spotify.com/search/${q}`,              color: '#1DB954' },
+    { label: 'Apple Music', url: `https://music.apple.com/search?term=${q}`,           color: '#fc3c44' },
+    { label: 'YT Music',    url: `https://music.youtube.com/search?q=${q}`,            color: '#FF0000' },
+    { label: 'Pandora',     url: `https://www.pandora.com/search/${q}/artists`,        color: '#3668FF' },
+  ];
+}
+
+function showPlaylistModal(locationDisplay, artists) {
+  const body = document.getElementById('playlist-body');
+  document.getElementById('playlist-city').textContent = `Artists near ${locationDisplay}`;
+
+  if (artists.length === 0) {
+    body.innerHTML = '<p class="playlist-empty">No artists found for this area — try a larger nearby city!</p>';
+  } else {
+    body.innerHTML = artists.map(a => `
+      <div class="playlist-artist">
+        <div class="playlist-artist-info">
+          <span class="playlist-artist-name">${esc(a.name)}</span>
+          ${a.genre ? `<span class="playlist-artist-genre">${esc(a.genre)}</span>` : ''}
+        </div>
+        <div class="playlist-artist-links">
+          ${platformLinks(a.name).map(p =>
+            `<a class="playlist-platform-btn" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer"
+                style="background:${p.color}">${esc(p.label)}</a>`
+          ).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  const modal           = document.getElementById('playlist-modal');
+  modal.dataset.artists  = artists.map(a => a.name).join('\n');
+  modal.dataset.location = locationDisplay;
+  modal.style.display    = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function hidePlaylistModal() {
+  document.getElementById('playlist-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function fallbackCopy(text) {
+  // execCommand fallback for older iOS Safari where clipboard API isn't available
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); } catch (e) { /* silent */ }
+  document.body.removeChild(ta);
+}
+
+async function openPlaylist() {
+  if (!state.lat || !state.lng) {
+    alert('Location not available yet — please wait for GPS to lock.');
+    return;
+  }
+
+  // Show modal immediately in loading state
+  document.getElementById('playlist-city').textContent = 'Finding local artists…';
+  document.getElementById('playlist-body').innerHTML =
+    '<div class="status-message"><div class="spinner"></div><p>Looking up your area…</p></div>';
+  document.getElementById('playlist-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const { city, region, display } = await fetchNearbyCity(state.lat, state.lng);
+    const artists = await fetchLocalArtists(city, region);
+    showPlaylistModal(display || 'Your Area', artists);
+  } catch (err) {
+    console.error('Playlist error:', err);
+    document.getElementById('playlist-city').textContent = 'Could not load artists';
+    document.getElementById('playlist-body').innerHTML =
+      '<p class="playlist-empty">Check your connection and try again.</p>';
+  }
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

@@ -22,7 +22,10 @@
           <span class="logo">🛣️</span>
           <h1>RoadStop</h1>
         </div>
-        <div id="location-status" class="location-status">📍 Locating…</div>
+        <div class="header-actions">
+          <button id="playlist-btn" class="playlist-btn" title="Local Artist Playlist" aria-label="Local Artist Playlist">🎵</button>
+          <div id="location-status" class="location-status">📍 Locating…</div>
+        </div>
       </div>
       <div class="heading-row">
         <span id="heading-arrow" class="heading-arrow">↑</span>
@@ -101,6 +104,23 @@
     </section>
 
   </div>
+
+  <!-- ─── Local Playlist Modal ─── -->
+  <div id="playlist-modal" class="playlist-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="playlist-title">
+    <div class="playlist-modal-inner">
+      <div class="playlist-modal-header">
+        <h2 id="playlist-title" class="playlist-title">🎵 Local Artists</h2>
+        <button id="playlist-close" class="playlist-close" aria-label="Close">✕</button>
+      </div>
+      <div id="playlist-city" class="playlist-city"></div>
+      <div id="playlist-body" class="playlist-body"></div>
+      <div class="playlist-footer">
+        <button id="playlist-copy"  class="playlist-action-btn">📋 Copy List</button>
+        <button id="playlist-share" class="playlist-action-btn primary">↑ Share</button>
+      </div>
+    </div>
+  </div>
+
   <script src="leaflet.js"></script>
   <script src="app.js"></script>
 </body>
